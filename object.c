@@ -102,7 +102,11 @@ int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out
     fsync(fd);
     close(fd);
 
-    rename(tmp, path);
+    if (rename(tmp, path) != 0) {
+    unlink(tmp);
+    free(buf);
+    return -1;
+}
 
     free(buf);
     return 0;
