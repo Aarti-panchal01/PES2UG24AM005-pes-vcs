@@ -5,7 +5,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-// LOAD
 int index_load(Index *index) {
     index->count = 0;
 
@@ -30,7 +29,6 @@ int index_load(Index *index) {
     return 0;
 }
 
-// SAVE
 int index_save(const Index *index) {
     FILE *f = fopen(".pes/index.tmp", "w");
     if (!f) return -1;
@@ -52,7 +50,6 @@ int index_save(const Index *index) {
     return 0;
 }
 
-// FIND
 IndexEntry* index_find(Index *index, const char *path) {
     for (int i = 0; i < index->count; i++) {
         if (strcmp(index->entries[i].path, path) == 0)
@@ -61,12 +58,9 @@ IndexEntry* index_find(Index *index, const char *path) {
     return NULL;
 }
 
-// ADD
 int index_add(Index *index, const char *path) {
     struct stat st;
     if (stat(path, &st) != 0) return -1;
-
-    if (!S_ISREG(st.st_mode)) return -1;
 
     FILE *f = fopen(path, "rb");
     if (!f) return -1;
@@ -79,13 +73,13 @@ int index_add(Index *index, const char *path) {
         return -1;
     }
 
-    size_t read_bytes = fread(data, 1, size, f);
-    fclose(f);
-
-    if (read_bytes != size) {
+    if (fread(data, 1, size, f) != size) {
         free(data);
+        fclose(f);
         return -1;
     }
+
+    fclose(f);
 
     ObjectID id;
     if (object_write(OBJ_BLOB, data, size, &id) != 0) {
