@@ -66,23 +66,26 @@ int index_add(Index *index, const char *path) {
     struct stat st;
     if (stat(path, &st) != 0) return -1;
 
+    if (!S_ISREG(st.st_mode)) return -1;
+
     FILE *f = fopen(path, "rb");
     if (!f) return -1;
 
     size_t size = st.st_size;
-    char *data = malloc(size);
+
+    char *data = malloc(size > 0 ? size : 1);
     if (!data) {
         fclose(f);
         return -1;
     }
 
-    if (fread(data, 1, size, f) != size) {
+    size_t read_bytes = fread(data, 1, size, f);
+    fclose(f);
+
+    if (read_bytes != size) {
         free(data);
-        fclose(f);
         return -1;
     }
-
-    fclose(f);
 
     ObjectID id;
     if (object_write(OBJ_BLOB, data, size, &id) != 0) {
@@ -93,6 +96,7 @@ int index_add(Index *index, const char *path) {
     free(data);
 
     IndexEntry *entry = index_find(index, path);
+
     if (!entry) {
         if (index->count >= MAX_INDEX_ENTRIES) return -1;
         entry = &index->entries[index->count++];
