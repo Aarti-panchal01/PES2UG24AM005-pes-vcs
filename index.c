@@ -33,34 +33,34 @@ int index_remove(Index *index, const char *path) {
 
 int index_status(const Index *index) {
     printf("Staged changes:\n");
-    int staged_count = 0;
-    for (int i = 0; i < index->count; i++) {
-        printf("  staged:     %s\n", index->entries[i].path);
-        staged_count++;
+    if (index->count == 0) {
+        printf("  (nothing to show)\n\n");
+    } else {
+        for (int i = 0; i < index->count; i++) {
+            printf("  staged:     %s\n", index->entries[i].path);
+        }
+        printf("\n");
     }
-    if (staged_count == 0) printf("  (nothing to show)\n");
-    printf("\n");
 
     printf("Unstaged changes:\n");
-    int unstaged_count = 0;
+    int unstaged = 0;
     for (int i = 0; i < index->count; i++) {
         struct stat st;
         if (stat(index->entries[i].path, &st) != 0) {
             printf("  deleted:    %s\n", index->entries[i].path);
-            unstaged_count++;
-        } else {
-            if (st.st_mtime != (time_t)index->entries[i].mtime_sec ||
-                st.st_size != (off_t)index->entries[i].size) {
-                printf("  modified:   %s\n", index->entries[i].path);
-                unstaged_count++;
-            }
+            unstaged++;
+        } else if (st.st_mtime != (time_t)index->entries[i].mtime_sec ||
+                   st.st_size != (off_t)index->entries[i].size) {
+            printf("  modified:   %s\n", index->entries[i].path);
+            unstaged++;
         }
     }
-    if (unstaged_count == 0) printf("  (nothing to show)\n");
+    if (unstaged == 0) printf("  (nothing to show)\n");
     printf("\n");
 
     printf("Untracked files:\n");
-    int untracked_count = 0;
+    int untracked = 0;
+
     DIR *dir = opendir(".");
     if (dir) {
         struct dirent *ent;
@@ -69,29 +69,30 @@ int index_status(const Index *index) {
                 strcmp(ent->d_name, "..") == 0 ||
                 strcmp(ent->d_name, ".pes") == 0 ||
                 strcmp(ent->d_name, "pes") == 0 ||
-                strstr(ent->d_name, ".o") != NULL)
+                strstr(ent->d_name, ".o"))
                 continue;
 
-            int is_tracked = 0;
+            int tracked = 0;
             for (int i = 0; i < index->count; i++) {
                 if (strcmp(index->entries[i].path, ent->d_name) == 0) {
-                    is_tracked = 1;
+                    tracked = 1;
                     break;
                 }
             }
 
-            if (!is_tracked) {
+            if (!tracked) {
                 struct stat st;
                 stat(ent->d_name, &st);
                 if (S_ISREG(st.st_mode)) {
                     printf("  untracked:  %s\n", ent->d_name);
-                    untracked_count++;
+                    untracked++;
                 }
             }
         }
         closedir(dir);
     }
-    if (untracked_count == 0) printf("  (nothing to show)\n");
+
+    if (untracked == 0) printf("  (nothing to show)\n");
     printf("\n");
 
     return 0;
@@ -99,20 +100,17 @@ int index_status(const Index *index) {
 
 // ─── IMPLEMENTATION ─────────────────────────────────────────────────────────
 
-// compare for sorting
-static int compare_entries(const void *a, const void *b) {
+// sorting
+static int cmp(const void *a, const void *b) {
     return strcmp(((IndexEntry*)a)->path, ((IndexEntry*)b)->path);
 }
 
-// load index
+// LOAD
 int index_load(Index *index) {
     index->count = 0;
 
-    index->entries = malloc(1024 * sizeof(IndexEntry));
-    if (!index->entries) return -1;
-
     FILE *f = fopen(".pes/index", "r");
-    if (!f) return 0;  // first run → no index yet
+    if (!f) return 0; // no index yet → OK
 
     char hash_hex[65];
 
@@ -125,26 +123,28 @@ int index_load(Index *index) {
 
         hex_to_hash(hash_hex, &index->entries[index->count].id);
         index->count++;
+
+        if (index->count >= MAX_ENTRIES) break;
     }
 
     fclose(f);
     return 0;
 }
 
-// save index
+// SAVE
 int index_save(const Index *index) {
-    qsort(index->entries, index->count, sizeof(IndexEntry), compare_entries);
+    qsort((void*)index->entries, index->count, sizeof(IndexEntry), cmp);
 
     FILE *f = fopen(".pes/index.tmp", "w");
     if (!f) return -1;
 
-    char hash_hex[65];
+    char hex[65];
 
     for (int i = 0; i < index->count; i++) {
-        hash_to_hex(&index->entries[i].id, hash_hex);
+        hash_to_hex(&index->entries[i].id, hex);
         fprintf(f, "%o %s %lu %lu %s\n",
                 index->entries[i].mode,
-                hash_hex,
+                hex,
                 index->entries[i].mtime_sec,
                 index->entries[i].size,
                 index->entries[i].path);
@@ -155,7 +155,7 @@ int index_save(const Index *index) {
     return 0;
 }
 
-// add file
+// ADD
 int index_add(Index *index, const char *path) {
     FILE *f = fopen(path, "rb");
     if (!f) return -1;
@@ -177,6 +177,7 @@ int index_add(Index *index, const char *path) {
 
     IndexEntry *entry = index_find(index, path);
     if (!entry) {
+        if (index->count >= MAX_ENTRIES) return -1;
         entry = &index->entries[index->count++];
     }
 
