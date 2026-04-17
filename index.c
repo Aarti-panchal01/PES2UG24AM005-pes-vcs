@@ -83,9 +83,10 @@ int index_add(Index *index, const char *path) {
 
     ObjectID id;
     if (object_write(OBJ_BLOB, data, size, &id) != 0) {
-        free(data);
-        return -1;
-    }
+    perror("object_write failed");
+    free(data);
+    return -1;
+}
 
     free(data);
 
